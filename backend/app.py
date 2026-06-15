@@ -385,8 +385,9 @@ def google_login(request: Request):
     """Redirect the browser to Google's OAuth consent screen."""
     if not google_auth.is_configured():
         return {"error": "Google OAuth is not configured on this server."}
-    auth_url, state = google_auth.get_authorization_url()
+    auth_url, state, code_verifier = google_auth.get_authorization_url()
     request.session["oauth_state"] = state
+    request.session["oauth_code_verifier"] = code_verifier
     return RedirectResponse(auth_url)
 
 
@@ -401,11 +402,12 @@ def google_callback(request: Request, code: str | None = None, state: str | None
         return RedirectResponse(f"{frontend_url}/?google_error=missing_code")
 
     expected_state = request.session.pop("oauth_state", None)
+    code_verifier = request.session.pop("oauth_code_verifier", None)
     if expected_state and state != expected_state:
         return RedirectResponse(f"{frontend_url}/?google_error=state_mismatch")
 
     try:
-        creds = google_auth.exchange_code(code, state=state)
+        creds = google_auth.exchange_code(code, state=state, code_verifier=code_verifier)
         request.session["google_credentials"] = google_auth.credentials_to_dict(creds)
         request.session["google_email"] = google_auth.fetch_user_email(creds)
     except Exception as e:

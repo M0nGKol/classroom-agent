@@ -59,29 +59,42 @@ def _redirect_uri() -> str:
     return os.environ["GOOGLE_REDIRECT_URI"]
 
 
-def build_flow(state: str | None = None) -> Flow:
+def build_flow(state: str | None = None, code_verifier: str | None = None) -> Flow:
     return Flow.from_client_config(
         _client_config(),
         scopes=SCOPES,
         state=state,
         redirect_uri=_redirect_uri(),
+        code_verifier=code_verifier,
     )
 
 
-def get_authorization_url() -> tuple[str, str]:
-    """Return (authorization_url, state) to redirect the user to Google."""
+def get_authorization_url() -> tuple[str, str, str]:
+    """Return (authorization_url, state, code_verifier) to redirect the user to Google.
+
+    ``google_auth_oauthlib`` auto-generates a PKCE ``code_verifier`` for this
+    Flow instance and includes the matching ``code_challenge`` in the
+    authorization URL. The same ``code_verifier`` must be supplied again when
+    exchanging the code (see :func:`exchange_code`), so the caller is
+    responsible for stashing it (e.g. in the session) between requests.
+    """
     flow = build_flow()
     auth_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
     )
-    return auth_url, state
+    return auth_url, state, flow.code_verifier
 
 
-def exchange_code(code: str, state: str | None = None) -> Credentials:
-    """Exchange an authorization code (from the OAuth callback) for credentials."""
-    flow = build_flow(state=state)
+def exchange_code(code: str, state: str | None = None, code_verifier: str | None = None) -> Credentials:
+    """Exchange an authorization code (from the OAuth callback) for credentials.
+
+    ``code_verifier`` must be the same PKCE verifier returned alongside the
+    authorization URL by :func:`get_authorization_url`, otherwise Google
+    rejects the exchange with ``invalid_grant: Missing code verifier``.
+    """
+    flow = build_flow(state=state, code_verifier=code_verifier)
     flow.fetch_token(code=code)
     return flow.credentials
 
