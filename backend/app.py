@@ -409,7 +409,18 @@ def google_callback(request: Request, code: str | None = None, state: str | None
         request.session["google_credentials"] = google_auth.credentials_to_dict(creds)
         request.session["google_email"] = google_auth.fetch_user_email(creds)
     except Exception as e:
-        return RedirectResponse(f"{frontend_url}/?google_error={type(e).__name__}")
+        # Log the full detail server-side (visible in Render logs) — the
+        # exception class name alone (e.g. "InvalidGrantError") isn't enough
+        # to diagnose the real cause.
+        traceback.print_exc()
+        if "google_credentials" in request.session:
+            # A previous request on this same session already completed the
+            # exchange successfully (e.g. a duplicate/retried callback after
+            # a slow cold-start) — treat this as already signed in.
+            return RedirectResponse(f"{frontend_url}/?google=connected")
+        from urllib.parse import quote  # noqa: PLC0415
+        detail = quote(f"{type(e).__name__}: {e}"[:200])
+        return RedirectResponse(f"{frontend_url}/?google_error={detail}")
 
     return RedirectResponse(f"{frontend_url}/?google=connected")
 

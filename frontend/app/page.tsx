@@ -6,7 +6,7 @@ import {
   Upload, FileText, Users, Calendar, CheckCircle, AlertCircle,
   Loader2, Sparkles, Clock, Zap, Wifi, WifiOff, Play, CalendarClock,
   Save, ToggleLeft, ToggleRight, ChevronLeft, ChevronRight, X,
-  LogIn, LogOut, UserCircle,
+  LogIn, LogOut, UserCircle, Download,
 } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,13 +43,14 @@ interface SchedulerStatus {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const FILE_CONFIG: Record<FileKey, { label: string; description: string; formats: string; icon: React.ReactNode; color: string }> = {
+const FILE_CONFIG: Record<FileKey, { label: string; description: string; formats: string; icon: React.ReactNode; color: string; template: string }> = {
   schedule: {
     label: "Schedule",
     description: "Course names, dates, times & durations",
     formats: "PDF, DOCX, CSV",
     icon: <Calendar className="w-5 h-5" />,
     color: "text-blue-600",
+    template: "/templates/schedule_template.csv",
   },
   courses: {
     label: "Courses",
@@ -57,6 +58,7 @@ const FILE_CONFIG: Record<FileKey, { label: string; description: string; formats
     formats: "PDF, DOCX, CSV",
     icon: <FileText className="w-5 h-5" />,
     color: "text-purple-600",
+    template: "/templates/courses_template.csv",
   },
   students: {
     label: "Students",
@@ -64,6 +66,7 @@ const FILE_CONFIG: Record<FileKey, { label: string; description: string; formats
     formats: "CSV, DOCX",
     icon: <Users className="w-5 h-5" />,
     color: "text-green-600",
+    template: "/templates/students_template.csv",
   },
 };
 
@@ -112,6 +115,16 @@ function DropZone({ fileKey, fileState, onChange }: {
               <p className="text-xs text-slate-400">{config.description}</p>
             )}
           </div>
+          <a
+            href={config.template}
+            download
+            onClick={(e) => e.stopPropagation()}
+            className="shrink-0 inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-slate-700 transition-colors"
+            title={`Download a sample ${config.label.toLowerCase()} CSV template`}
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Template</span>
+          </a>
           {hasFile ? (
             <button
               className="text-slate-300 hover:text-red-400 transition-colors text-xs shrink-0"
