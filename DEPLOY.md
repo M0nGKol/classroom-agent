@@ -41,16 +41,21 @@ Free tier note: Render free web services spin down when idle and take ~30–60s 
 2. **Root Directory**: `frontend`
 3. Framework preset: Next.js (auto-detected).
 4. **Environment variable**:
-   - `NEXT_PUBLIC_API_URL` = your Render backend URL (e.g. `https://ai-classroom-agent.onrender.com`) — no trailing slash.
+   - `BACKEND_URL` = your Render backend URL (e.g. `https://ai-classroom-agent.onrender.com`) — no trailing slash. (Server-side only — **not** prefixed with `NEXT_PUBLIC_`.)
    - Add it for Production (and Preview if you want preview deploys to hit the same backend).
 5. Deploy. Note the resulting URL, e.g. `https://ai-classroom-agent.vercel.app`.
+
+The frontend talks to the backend via `/api/*` paths, which `next.config.ts`
+transparently proxies to `BACKEND_URL`. The browser never calls the Render
+domain directly — this keeps session cookies first-party (important for
+Google sign-in, see `GOOGLE_OAUTH_SETUP.md`).
 
 ---
 
 ## 3. Connect them
 
 1. Back in Render, set `FRONTEND_URL` to your Vercel URL from step 2, and redeploy (or it picks it up on next deploy/restart) so CORS allows requests from the frontend.
-2. Open the Vercel URL and confirm the app can reach `/api/health` on the Render backend (check browser console/network tab for CORS or connection errors).
+2. Open the Vercel URL and confirm the page loads data (scheduler status, etc.) — any `/api/*` call failing in the browser network tab points to `BACKEND_URL` being wrong/missing on Vercel.
 
 ---
 
@@ -65,6 +70,7 @@ extra env vars (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
 
 ## What was changed in the code to support this
 
-- `frontend/app/page.tsx`, `run/page.tsx`, `report/page.tsx`: `API_BASE` now reads `process.env.NEXT_PUBLIC_API_URL`, falling back to `http://localhost:8000` for local dev.
+- `frontend/next.config.ts`: proxies `/api/*` to `BACKEND_URL` (the FastAPI backend), so the browser only ever talks to the Vercel domain.
+- `frontend/app/page.tsx`, `run/page.tsx`, `report/page.tsx`: `API_BASE` is now `""` — all fetches use relative `/api/...` paths handled by the rewrite above.
 - `backend/app.py`: CORS `allow_origins` now also includes `FRONTEND_URL` / `FRONTEND_URLS` from environment variables, in addition to localhost.
 - Added per-user Google sign-in (session cookies + `/api/auth/*` endpoints) — see `GOOGLE_OAUTH_SETUP.md`.

@@ -21,8 +21,13 @@ Cloud project.
 4. Name it something like "AI Classroom Agent (web)".
 5. **Authorized JavaScript origins**: add your Vercel frontend URL, e.g.
    `https://classroom-agent.vercel.app`
-6. **Authorized redirect URIs**: add your Render backend URL + `/api/auth/google/callback`, e.g.
-   `https://ai-classroom-agent.onrender.com/api/auth/google/callback`
+6. **Authorized redirect URIs**: add your **Vercel frontend URL** + `/api/auth/google/callback`, e.g.
+   `https://classroom-agent.vercel.app/api/auth/google/callback`
+
+   ⚠️ This is the **frontend** domain, not the Render backend domain. The
+   frontend's `next.config.ts` proxies `/api/*` to the backend, so the
+   session cookie set during sign-in is first-party to the Vercel domain
+   (avoids browsers blocking it as a third-party cookie).
 7. Create. Copy the **Client ID** and **Client secret**.
 
 ---
@@ -52,13 +57,17 @@ In your Render service → **Environment**, add:
 |---|---|
 | `GOOGLE_CLIENT_ID` | from step 1 |
 | `GOOGLE_CLIENT_SECRET` | from step 1 |
-| `GOOGLE_REDIRECT_URI` | `https://<your-render-url>/api/auth/google/callback` |
+| `GOOGLE_REDIRECT_URI` | `https://<your-vercel-url>/api/auth/google/callback` (must exactly match the redirect URI from step 1 — the **frontend** domain) |
 | `SESSION_SECRET` | any long random string, e.g. output of `openssl rand -hex 32` |
 
 `FRONTEND_URL` should already be set (from the main deploy) — it's reused
 here to redirect users back to the frontend after sign-in.
 
-Redeploy/restart the Render service so the new env vars take effect.
+Also make sure `BACKEND_URL` is set on **Vercel** (Render backend URL, see
+`DEPLOY.md` step 2) — this is what makes the `/api/*` proxy work.
+
+Redeploy/restart the Render service (and redeploy the Vercel app if you just
+added `BACKEND_URL`) so the new env vars take effect.
 
 ---
 

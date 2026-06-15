@@ -13,7 +13,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// All API calls are relative (proxied to the backend via next.config.ts
+// rewrites), so the session cookie is first-party — see GOOGLE_OAUTH_SETUP.md.
+const API_BASE = "";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
