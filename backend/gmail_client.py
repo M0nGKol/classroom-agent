@@ -29,6 +29,10 @@ TOKEN_FILE = PROJECT_ROOT / "token.json"
 
 
 def _get_credentials() -> Credentials:
+    """Load credentials from the local file-based flow (deployer's own account).
+
+    Used by the CLI / scheduler, which has no per-user session.
+    """
     creds: Credentials | None = None
     if TOKEN_FILE.exists():
         creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
@@ -52,13 +56,16 @@ def send_invitation(
     course_name: str,
     schedule: str,
     zoom_url: str,
+    credentials: Credentials | None = None,
 ) -> None:
     """
     Send a friendly HTML email with class details.
 
     ``schedule`` may be a single session description or a full multi-line schedule.
+    ``credentials``, if given, is used instead of the local token.json file
+    (e.g. a signed-in user's per-session OAuth credentials).
     """
-    creds = _get_credentials()
+    creds = credentials or _get_credentials()
     service = build("gmail", "v1", credentials=creds, cache_discovery=False)
 
     safe_name = html.escape(student_name)

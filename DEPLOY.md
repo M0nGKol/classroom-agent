@@ -54,7 +54,17 @@ Free tier note: Render free web services spin down when idle and take ~30–60s 
 
 ---
 
+## Optional: let testers sign in with their own Google account
+
+See `GOOGLE_OAUTH_SETUP.md` for adding per-user "Sign in with Google" (so
+Calendar events/emails go through each tester's own account). Requires a few
+extra env vars (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`GOOGLE_REDIRECT_URI`, `SESSION_SECRET`) — everything works without it too.
+
+---
+
 ## What was changed in the code to support this
 
 - `frontend/app/page.tsx`, `run/page.tsx`, `report/page.tsx`: `API_BASE` now reads `process.env.NEXT_PUBLIC_API_URL`, falling back to `http://localhost:8000` for local dev.
 - `backend/app.py`: CORS `allow_origins` now also includes `FRONTEND_URL` / `FRONTEND_URLS` from environment variables, in addition to localhost.
+- Added per-user Google sign-in (session cookies + `/api/auth/*` endpoints) — see `GOOGLE_OAUTH_SETUP.md`.

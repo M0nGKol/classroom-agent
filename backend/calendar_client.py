@@ -26,6 +26,10 @@ TOKEN_FILE = PROJECT_ROOT / "token.json"
 
 
 def _get_credentials() -> Credentials:
+    """Load credentials from the local file-based flow (deployer's own account).
+
+    Used by the CLI / scheduler, which has no per-user session.
+    """
     creds: Credentials | None = None
     if TOKEN_FILE.exists():
         creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
@@ -48,14 +52,17 @@ def create_event(
     start_time: str,
     duration_minutes: int,
     zoom_url: str,
+    credentials: Credentials | None = None,
 ) -> str:
     """
     Create a calendar event and return an HTML link to the event.
 
     ``start_time`` is an RFC3339 / ISO 8601 datetime string.
     ``zoom_url`` is embedded in the event description.
+    ``credentials``, if given, is used instead of the local token.json file
+    (e.g. a signed-in user's per-session OAuth credentials).
     """
-    creds = _get_credentials()
+    creds = credentials or _get_credentials()
     service = build("calendar", "v3", credentials=creds, cache_discovery=False)
 
     description = (

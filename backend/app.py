@@ -12,8 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
+from starlette.middleware.sessions import SessionMiddleware
+
+import google_auth
 
 load_dotenv()
 
@@ -32,6 +36,21 @@ async def lifespan(app: FastAPI):  # noqa: ANN001
 
 
 app = FastAPI(title="AI Classroom Setup Agent API", lifespan=lifespan)
+
+# ---------------------------------------------------------------------------
+# Session cookie (used to remember each visitor's signed-in Google account)
+# ---------------------------------------------------------------------------
+# Render sets RENDER=true on its services; locally this is unset so cookies
+# work over plain http://localhost. In production the cookie must be
+# SameSite=None + Secure for the cross-site Vercel <-> Render setup.
+_in_production = os.getenv("RENDER", "").lower() == "true" or os.getenv("COOKIE_SECURE", "").lower() in ("1", "true", "yes")
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.environ.get("SESSION_SECRET", "dev-only-insecure-secret-change-me"),
+    same_site="none" if _in_production else "lax",
+    https_only=_in_production,
+)
 
 # Allow the local dev frontend plus any deployed Vercel frontend(s).
 # Set FRONTEND_URL (and optionally FRONTEND_URLS, comma-separated, for previews)
@@ -122,7 +141,14 @@ def _set_report(report: dict[str, Any]) -> None:
 # Background pipeline
 # ---------------------------------------------------------------------------
 
-def _run_pipeline() -> None:
+def _run_pipeline(google_creds_dict: dict[str, Any] | None = None) -> None:
+    """Run the pipeline.
+
+    ``google_creds_dict`` is the signed-in user's Google OAuth credentials
+    (as stored in their session), if any. When present, Calendar events and
+    Gmail invitations are created/sent as that user instead of the deployer's
+    local token.json account.
+    """
     from ai_processor import process_documents_text
     from calendar_client import create_event
     from conflict_checker import find_schedule_conflicts
@@ -137,6 +163,13 @@ def _run_pipeline() -> None:
     conflicts: list[str] = []
 
     skip = os.getenv("SKIP_EXTERNAL_APIS", "").lower() in ("1", "true", "yes")
+
+    google_creds = None
+    if google_creds_dict:
+        try:
+            google_creds, _ = google_auth.get_valid_credentials(google_creds_dict)
+        except Exception as e:
+            errors.append(f"Google sign-in: {e}")
 
     try:
         # Step 1 — Extract
@@ -215,7 +248,10 @@ def _run_pipeline() -> None:
                 if skip:
                     cal_link = "https://example.com/calendar-skipped"
                 else:
-                    cal_link = create_event(course_name, start_time, duration_minutes, zoom_url)
+                    cal_link = create_event(
+                        course_name, start_time, duration_minutes, zoom_url,
+                        credentials=google_creds,
+                    )
                 events_created.append({
                     "course_name": course_name,
                     "start_time": start_time,
@@ -251,7 +287,10 @@ def _run_pipeline() -> None:
                 if skip:
                     emails_sent += 1
                 else:
-                    send_invitation(name, email_addr, course_label, sched_text, primary_zoom)
+                    send_invitation(
+                        name, email_addr, course_label, sched_text, primary_zoom,
+                        credentials=google_creds,
+                    )
                     emails_sent += 1
             except Exception as e:
                 errors.append(f"Email to {email_addr}: {e}")
@@ -318,8 +357,12 @@ async def upload_files(
 
 
 @app.post("/api/run")
-def start_run() -> dict[str, str]:
-    """Start the automation pipeline in a background thread."""
+def start_run(request: Request) -> dict[str, str]:
+    """Start the automation pipeline in a background thread.
+
+    If the caller is signed in with Google (see /api/auth/*), Calendar
+    events and Gmail invitations are created/sent as that user.
+    """
     with _lock:
         if _run_state["status"] == "running":
             return {"message": "Already running"}
@@ -327,9 +370,67 @@ def start_run() -> dict[str, str]:
         _run_state["steps"] = _fresh_steps()
         _run_state["report"] = None
 
-    t = threading.Thread(target=_run_pipeline, daemon=True)
+    google_creds_dict = request.session.get("google_credentials")
+    t = threading.Thread(target=_run_pipeline, args=(google_creds_dict,), daemon=True)
     t.start()
     return {"message": "Pipeline started"}
+
+
+# ---------------------------------------------------------------------------
+# Google sign-in (per-user OAuth for Calendar + Gmail)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/auth/google/login")
+def google_login(request: Request):
+    """Redirect the browser to Google's OAuth consent screen."""
+    if not google_auth.is_configured():
+        return {"error": "Google OAuth is not configured on this server."}
+    auth_url, state = google_auth.get_authorization_url()
+    request.session["oauth_state"] = state
+    return RedirectResponse(auth_url)
+
+
+@app.get("/api/auth/google/callback")
+def google_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None):
+    """Handle the redirect back from Google, then send the user back to the frontend."""
+    frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+
+    if error:
+        return RedirectResponse(f"{frontend_url}/?google_error={error}")
+    if not code:
+        return RedirectResponse(f"{frontend_url}/?google_error=missing_code")
+
+    expected_state = request.session.pop("oauth_state", None)
+    if expected_state and state != expected_state:
+        return RedirectResponse(f"{frontend_url}/?google_error=state_mismatch")
+
+    try:
+        creds = google_auth.exchange_code(code, state=state)
+        request.session["google_credentials"] = google_auth.credentials_to_dict(creds)
+        request.session["google_email"] = google_auth.fetch_user_email(creds)
+    except Exception as e:
+        return RedirectResponse(f"{frontend_url}/?google_error={type(e).__name__}")
+
+    return RedirectResponse(f"{frontend_url}/?google=connected")
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request) -> dict[str, Any]:
+    """Tell the frontend whether the current visitor is signed in with Google."""
+    connected = "google_credentials" in request.session
+    return {
+        "configured": google_auth.is_configured(),
+        "connected": connected,
+        "email": request.session.get("google_email") if connected else None,
+    }
+
+
+@app.post("/api/auth/logout")
+def auth_logout(request: Request) -> dict[str, str]:
+    """Forget the current visitor's Google sign-in."""
+    request.session.pop("google_credentials", None)
+    request.session.pop("google_email", None)
+    return {"message": "Signed out"}
 
 
 @app.get("/api/status")

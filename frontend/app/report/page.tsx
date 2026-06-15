@@ -72,7 +72,7 @@ export default function ReportPage() {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/report`);
+        const res = await fetch(`${API_BASE}/api/report`, { credentials: "include" });
         const data = await res.json();
         if (data.error) {
           setError(data.error);
@@ -89,7 +89,7 @@ export default function ReportPage() {
   }, []);
 
   const handleRunAgain = async () => {
-    await fetch(`${API_BASE}/api/reset`, { method: "POST" });
+    await fetch(`${API_BASE}/api/reset`, { method: "POST", credentials: "include" });
     router.push("/");
   };
 

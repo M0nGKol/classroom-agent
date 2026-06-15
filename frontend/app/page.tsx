@@ -6,8 +6,9 @@ import {
   Upload, FileText, Users, Calendar, CheckCircle, AlertCircle,
   Loader2, Sparkles, Clock, Zap, Wifi, WifiOff, Play, CalendarClock,
   Save, ToggleLeft, ToggleRight, ChevronLeft, ChevronRight, X,
+  LogIn, LogOut, UserCircle,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -21,6 +22,12 @@ type FileKey = "schedule" | "courses" | "students";
 interface FileState {
   file: File | null;
   error: string;
+}
+
+interface GoogleAuthStatus {
+  configured: boolean;
+  connected: boolean;
+  email: string | null;
 }
 
 interface SchedulerStatus {
@@ -154,19 +161,51 @@ export default function HomePage() {
     setUploading(true);
     setGlobalError("");
     try {
-      await fetch(`${API_BASE}/api/reset`, { method: "POST" });
+      await fetch(`${API_BASE}/api/reset`, { method: "POST", credentials: "include" });
       const form = new FormData();
       form.append("schedule", files.schedule.file!);
       form.append("courses",  files.courses.file!);
       form.append("students", files.students.file!);
-      const uploadRes = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: form });
+      const uploadRes = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: form, credentials: "include" });
       if (!uploadRes.ok) throw new Error("File upload failed");
-      const runRes = await fetch(`${API_BASE}/api/run`, { method: "POST" });
+      const runRes = await fetch(`${API_BASE}/api/run`, { method: "POST", credentials: "include" });
       if (!runRes.ok) throw new Error("Failed to start automation");
       router.push("/run");
     } catch (err: unknown) {
       setGlobalError(err instanceof Error ? err.message : "Something went wrong");
       setUploading(false);
+    }
+  };
+
+  // ── Google sign-in state ───────────────────────────────────────────────────
+  const [googleAuth, setGoogleAuth] = useState<GoogleAuthStatus | null>(null);
+  const [googleError, setGoogleError] = useState("");
+
+  const refreshGoogleAuth = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/me`, { credentials: "include" });
+      if (res.ok) setGoogleAuth(await res.json());
+    } catch {
+      // backend offline — leave googleAuth as-is
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshGoogleAuth();
+    // Surface ?google=connected / ?google_error=... from the OAuth redirect, then clean the URL.
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get("google_error");
+    if (err) setGoogleError(err);
+    if (params.has("google") || params.has("google_error")) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [refreshGoogleAuth]);
+
+  const handleGoogleSignOut = async () => {
+    try {
+      await fetch(`${API_BASE}/api/auth/logout`, { method: "POST", credentials: "include" });
+    } finally {
+      refreshGoogleAuth();
     }
   };
 
@@ -196,7 +235,7 @@ export default function HomePage() {
   useEffect(() => {
     const fetchStatus = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/scheduler-status`);
+        const res = await fetch(`${API_BASE}/api/scheduler-status`, { credentials: "include" });
         if (res.ok) {
           const data: SchedulerStatus = await res.json();
           setStatus(data);
@@ -245,6 +284,7 @@ export default function HomePage() {
     try {
       const res = await fetch(`${API_BASE}/api/scheduler-config`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           enabled:        editEnabled,
@@ -271,7 +311,7 @@ export default function HomePage() {
     setTriggering(true);
     setTriggerMsg("");
     try {
-      const res = await fetch(`${API_BASE}/api/trigger-now`, { method: "POST" });
+      const res = await fetch(`${API_BASE}/api/trigger-now`, { method: "POST", credentials: "include" });
       if (res.ok) {
         setTriggerMsg("Triggered! Redirecting…");
         setTimeout(() => router.push("/run"), 1200);
@@ -338,6 +378,48 @@ export default function HomePage() {
                 <p className="text-xs text-slate-500">Upload files and start the automation immediately</p>
               </div>
             </div>
+
+            {/* Google sign-in */}
+            {googleAuth?.configured && (
+              <Card className="border-slate-200">
+                <CardContent className="p-4 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <UserCircle className={cn("w-5 h-5 shrink-0", googleAuth.connected ? "text-green-600" : "text-slate-400")} />
+                    <div className="min-w-0">
+                      {googleAuth.connected ? (
+                        <>
+                          <p className="text-sm font-medium text-slate-800">Signed in with Google</p>
+                          <p className="text-xs text-slate-500 truncate">{googleAuth.email ?? "Connected"}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm font-medium text-slate-800">Sign in with Google</p>
+                          <p className="text-xs text-slate-500">Calendar events &amp; emails will use your account</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {googleAuth.connected ? (
+                    <Button variant="outline" size="sm" onClick={handleGoogleSignOut} className="gap-1.5 shrink-0">
+                      <LogOut className="w-3.5 h-3.5" /> Sign out
+                    </Button>
+                  ) : (
+                    <a
+                      href={`${API_BASE}/api/auth/google/login`}
+                      className={cn(buttonVariants({ size: "sm" }), "gap-1.5 shrink-0")}
+                    >
+                      <LogIn className="w-3.5 h-3.5" /> Sign in
+                    </a>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+            {googleError && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center gap-2 text-amber-700 text-sm">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                Google sign-in failed ({googleError}). You can still run automation — it&apos;ll use the app&apos;s default Google account.
+              </div>
+            )}
 
             {/* Upload dropzones */}
             <Card className="border-slate-200">

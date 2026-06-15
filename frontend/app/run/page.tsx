@@ -134,7 +134,7 @@ export default function RunPage() {
 
     const poll = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/status`);
+        const res = await fetch(`${API_BASE}/api/status`, { credentials: "include" });
         if (!res.ok) return;
         const data: RunState = await res.json();
         setState(data);

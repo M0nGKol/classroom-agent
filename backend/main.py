@@ -17,6 +17,11 @@ from backend.gmail_client import send_invitation
 from backend.reporter import generate_report
 from backend.zoom_client import create_meeting
 
+try:  # pragma: no cover - typing only
+    from google.oauth2.credentials import Credentials
+except ImportError:  # pragma: no cover
+    Credentials = Any  # type: ignore[assignment, misc]
+
 load_dotenv()
 
 UPLOADS_DIR = Path(__file__).resolve().parent / "uploads"
@@ -65,7 +70,13 @@ def _format_invitation_schedule(events: list[dict[str, Any]]) -> tuple[str, str]
     return "\n".join(lines), primary_zoom
 
 
-def run() -> None:
+def run(credentials: "Credentials | None" = None) -> None:
+    """Run the full pipeline.
+
+    ``credentials`` are optional per-user Google OAuth credentials (Calendar +
+    Gmail). If omitted, ``calendar_client``/``gmail_client`` fall back to the
+    deployer's local ``token.json`` (used by the CLI / scheduler).
+    """
     errors: list[str] = []
     events_created: list[dict[str, Any]] = []
     emails_sent = 0
@@ -121,7 +132,10 @@ def run() -> None:
                     cal_link = "https://example.com/calendar-skipped"
                 else:
                     zoom_url = create_meeting(course_name, start_time, duration_minutes)
-                    cal_link = create_event(course_name, start_time, duration_minutes, zoom_url)
+                    cal_link = create_event(
+                        course_name, start_time, duration_minutes, zoom_url,
+                        credentials=credentials,
+                    )
                 events_created.append(
                     {
                         "course_name": course_name,
@@ -164,6 +178,7 @@ def run() -> None:
                         course_label,
                         sched_text or "Schedule details to be announced.",
                         primary_zoom or "https://zoom.us",
+                        credentials=credentials,
                     )
                     emails_sent += 1
                     print(f"  Sent to {email_addr}")
